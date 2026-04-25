@@ -1,18 +1,24 @@
+# Local secrets - NEVER commit these
+local.properties
+
+# Android generated files
 *.iml
 .gradle
 /local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+/.idea
 .DS_Store
 /build
 /captures
 .externalNativeBuild
-.cxx
-local.properties
-.gradle/
+.codemagic
+
+# App build outputs
+app/build/
 build/
-**/build/
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google services (if using Firebase)
+google-services.json

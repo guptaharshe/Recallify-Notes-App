@@ -3,6 +3,7 @@ package com.recallify.app.viewmodel
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.recallify.app.BuildConfig
 import com.recallify.app.data.local.datastore.ThemeDataStore
 import com.recallify.app.data.local.entity.NoteEntity
 import com.recallify.app.data.remote.AiService
@@ -17,7 +18,7 @@ class NoteViewModel(
 ) : ViewModel() {
 
     // Using Retrofit-based AiService which is compatible with Android 7.0+
-    private val aiService = AiService("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")
+    private val aiService = AiService(BuildConfig.OPENROUTER_API_KEY)
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
