@@ -55,7 +55,7 @@ class AiService(private val apiKey: String) {
         .create(AiApi::class.java)
 
     // Using the latest Gemini 2.0 Flash model via OpenRouter
-    private val modelName = "google/gemini-2.0-flash-001"
+    private val modelName = "meta-llama/llama-3.2-3b-instruct:free"
     private val referer = "https://recallify.app"
     private val title = "Recallify"
 
