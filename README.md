@@ -49,4 +49,4 @@ Recallify/
 ```
 
 ---
-*Developed with ❤️ by Your Name*
+*Deployed by Harshita Gupta*
