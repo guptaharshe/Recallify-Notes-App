@@ -62,6 +62,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
     
+    // Navigation
+    implementation("androidx.navigation:navigation-compose:2.8.5")
+    
     // Room
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)

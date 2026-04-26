@@ -9,6 +9,7 @@ import com.recallify.app.data.repository.NoteRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class NoteViewModel(
@@ -38,6 +39,10 @@ class NoteViewModel(
             }
         }
         filtered.sortedWith(compareByDescending<NoteEntity> { it.isPinned }.thenByDescending { it.timestamp })
+    }
+
+    suspend fun getNoteById(id: Int): NoteEntity? {
+        return repository.getAllNotes().first().find { it.id == id }
     }
 
     fun addNote(title: String, content: String) {

@@ -15,15 +15,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.recallify.app.data.local.database.DatabaseProvider
 import com.recallify.app.data.local.entity.NoteEntity
 import com.recallify.app.data.repository.NoteRepository
-import com.recallify.app.ui.components.AddNoteDialog
 import com.recallify.app.ui.theme.RecallifyTheme
 import com.recallify.app.viewmodel.NoteViewModel
 import com.recallify.app.viewmodel.NoteViewModelFactory
@@ -46,26 +50,43 @@ class MainActivity : ComponentActivity() {
         viewModel.loadTheme(this)
 
         setContent {
-            val notes by viewModel.filteredNotes.collectAsState(initial = emptyList())
-            val searchQuery by viewModel.searchQuery.collectAsState()
             val isDarkMode by viewModel.isDarkMode.collectAsState()
+            val navController = rememberNavController()
 
             RecallifyTheme(darkTheme = isDarkMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    NoteScreen(
-                        notes = notes,
-                        searchQuery = searchQuery,
-                        onSearchChange = { viewModel.updateSearch(it) },
-                        onThemeToggle = { viewModel.toggleTheme(this) },
-                        onAddNote = { title, content -> viewModel.addNote(title, content) },
-                        onUpdateNote = { viewModel.updateNote(it) },
-                        onDeleteNote = { viewModel.deleteNote(it) },
-                        onUndoDelete = { viewModel.undoDelete() },
-                        onTogglePin = { viewModel.togglePin(it) }
-                    )
+                    NavHost(navController = navController, startDestination = "home") {
+                        composable("home") {
+                            val notes by viewModel.filteredNotes.collectAsState(initial = emptyList())
+                            val searchQuery by viewModel.searchQuery.collectAsState()
+                            
+                            NoteListScreen(
+                                notes = notes,
+                                searchQuery = searchQuery,
+                                onSearchChange = { viewModel.updateSearch(it) },
+                                onThemeToggle = { viewModel.toggleTheme(this@MainActivity) },
+                                onAddClick = { navController.navigate("edit/-1") },
+                                onNoteClick = { navController.navigate("edit/${it.id}") },
+                                onDeleteNote = { viewModel.deleteNote(it) },
+                                onUndoDelete = { viewModel.undoDelete() },
+                                onTogglePin = { viewModel.togglePin(it) }
+                            )
+                        }
+                        composable(
+                            route = "edit/{noteId}",
+                            arguments = listOf(navArgument("noteId") { type = NavType.IntType })
+                        ) { backStackEntry ->
+                            val noteId = backStackEntry.arguments?.getInt("noteId") ?: -1
+                            EditNoteScreen(
+                                noteId = noteId,
+                                viewModel = viewModel,
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -74,19 +95,17 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NoteScreen(
+fun NoteListScreen(
     notes: List<NoteEntity>,
     searchQuery: String,
     onSearchChange: (String) -> Unit,
     onThemeToggle: () -> Unit,
-    onAddNote: (String, String) -> Unit,
-    onUpdateNote: (NoteEntity) -> Unit,
+    onAddClick: () -> Unit,
+    onNoteClick: (NoteEntity) -> Unit,
     onDeleteNote: (NoteEntity) -> Unit,
     onUndoDelete: () -> Unit,
     onTogglePin: (NoteEntity) -> Unit
 ) {
-    var showAddDialog by remember { mutableStateOf(false) }
-    var noteToEdit by remember { mutableStateOf<NoteEntity?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -127,7 +146,7 @@ fun NoteScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { showAddDialog = true },
+                onClick = onAddClick,
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 icon = { Icon(Icons.Default.Add, "Add Note") },
@@ -165,7 +184,7 @@ fun NoteScreen(
                     items(pinnedNotes, key = { it.id }) { note ->
                         NoteItemComponent(
                             note = note,
-                            onEdit = { noteToEdit = note },
+                            onClick = { onNoteClick(note) },
                             onDelete = {
                                 onDeleteNote(note)
                                 scope.launch {
@@ -187,7 +206,7 @@ fun NoteScreen(
                     items(otherNotes, key = { it.id }) { note ->
                         NoteItemComponent(
                             note = note,
-                            onEdit = { noteToEdit = note },
+                            onClick = { onNoteClick(note) },
                             onDelete = {
                                 onDeleteNote(note)
                                 scope.launch {
@@ -211,25 +230,130 @@ fun NoteScreen(
                 }
             }
         }
+    }
+}
 
-        if (showAddDialog) {
-            AddNoteDialog(
-                onAdd = { title, content ->
-                    onAddNote(title, content)
-                    showAddDialog = false
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditNoteScreen(
+    noteId: Int,
+    viewModel: NoteViewModel,
+    onBack: () -> Unit
+) {
+    var note by remember { mutableStateOf<NoteEntity?>(null) }
+    var title by remember { mutableStateOf("") }
+    var content by remember { mutableStateOf("") }
+    var isBold by remember { mutableStateOf(false) }
+    var isItalic by remember { mutableStateOf(false) }
+    var fontSize by remember { mutableStateOf(18f) }
+
+    LaunchedEffect(noteId) {
+        if (noteId != -1) {
+            val existingNote = viewModel.getNoteById(noteId)
+            existingNote?.let {
+                note = it
+                title = it.title
+                content = it.content
+            }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(if (noteId == -1) "New Note" else "Edit Note") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
                 },
-                onDismiss = { showAddDialog = false }
+                actions = {
+                    IconButton(onClick = {
+                        if (noteId == -1) {
+                            if (title.isNotBlank() || content.isNotBlank()) {
+                                viewModel.addNote(title, content)
+                            }
+                        } else {
+                            note?.let {
+                                viewModel.updateNote(it.copy(title = title, content = content))
+                            }
+                        }
+                        onBack()
+                    }) {
+                        Icon(Icons.Default.Check, contentDescription = "Save", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
             )
         }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                placeholder = { Text("Title", style = MaterialTheme.typography.headlineSmall) },
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedBorderColor = Color.Transparent
+                )
+            )
+            
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { isBold = !isBold },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                    )
+                ) {
+                    Icon(Icons.Default.FormatBold, "Bold")
+                }
+                
+                IconButton(
+                    onClick = { isItalic = !isItalic },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                    )
+                ) {
+                    Icon(Icons.Default.FormatItalic, "Italic")
+                }
 
-        noteToEdit?.let { note ->
-            EditNoteDialog(
-                note = note,
-                onUpdate = { title, content ->
-                    onUpdateNote(note.copy(title = title, content = content))
-                    noteToEdit = null
-                },
-                onDismiss = { noteToEdit = null }
+                VerticalDivider(modifier = Modifier.height(24.dp))
+
+                IconButton(onClick = { if (fontSize < 40f) fontSize += 2f }) {
+                    Icon(Icons.Default.Add, "Increase Size")
+                }
+                
+                Text("${fontSize.toInt()}", style = MaterialTheme.typography.bodyMedium)
+
+                IconButton(onClick = { if (fontSize > 12f) fontSize -= 2f }) {
+                    Icon(Icons.Default.Remove, "Decrease Size")
+                }
+            }
+
+            OutlinedTextField(
+                value = content,
+                onValueChange = { content = it },
+                placeholder = { Text("Start typing...") },
+                modifier = Modifier.fillMaxSize().weight(1f),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
+                    fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+                    fontSize = fontSize.sp
+                ),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedBorderColor = Color.Transparent
+                )
             )
         }
     }
@@ -273,14 +397,14 @@ fun EmptyState() {
 @Composable
 fun NoteItemComponent(
     note: NoteEntity,
-    onEdit: () -> Unit,
+    onClick: () -> Unit,
     onDelete: (NoteEntity) -> Unit,
     onTogglePin: (NoteEntity) -> Unit
 ) {
     val date = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(note.timestamp))
 
     Card(
-        onClick = onEdit,
+        onClick = onClick,
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
@@ -296,7 +420,7 @@ fun NoteItemComponent(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = note.title,
+                        text = note.title.ifBlank { "Untitled Note" },
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -307,104 +431,27 @@ fun NoteItemComponent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 }
-                IconButton(
-                    onClick = { onTogglePin(note) },
-                    modifier = Modifier.offset(x = 12.dp, y = (-8).dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PushPin,
-                        contentDescription = "Pin",
-                        tint = if (note.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = note.content,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 4,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 24.sp
-            )
-            
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Spacer(modifier = Modifier.weight(1f))
-                IconButton(onClick = { onDelete(note) }, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Default.DeleteOutline,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(20.dp)
-                    )
+                Row {
+                    IconButton(
+                        onClick = { onTogglePin(note) }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PushPin,
+                            contentDescription = "Pin",
+                            tint = if (note.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    IconButton(onClick = { onDelete(note) }) {
+                        Icon(
+                            Icons.Default.DeleteOutline,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-fun EditNoteDialog(note: NoteEntity, onUpdate: (String, String) -> Unit, onDismiss: () -> Unit) {
-    var title by remember { mutableStateOf(note.title) }
-    var content by remember { mutableStateOf(note.content) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Edit Note", style = MaterialTheme.typography.titleLarge) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = content,
-                    onValueChange = { content = it },
-                    label = { Text("Content") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 5,
-                    shape = RoundedCornerShape(12.dp)
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onUpdate(title, content) },
-                shape = RoundedCornerShape(12.dp)
-            ) { Text("Save Changes") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-        shape = RoundedCornerShape(28.dp)
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun NoteScreenPreview() {
-    RecallifyTheme {
-        NoteScreen(
-            notes = listOf(
-                NoteEntity(id = 1, title = "Modern Architecture", content = "Learn about clean architecture and MVVM in Android. Focus on separation of concerns and testability.", isPinned = true, timestamp = System.currentTimeMillis()),
-                NoteEntity(id = 2, title = "Gemini AI", content = "Integrating LLMs into mobile apps for smarter features like summarization and interactive quizzes.", timestamp = System.currentTimeMillis() - 86400000)
-            ),
-            searchQuery = "",
-            onSearchChange = {},
-            onThemeToggle = {},
-            onAddNote = { _, _ -> },
-            onUpdateNote = {},
-            onDeleteNote = {},
-            onUndoDelete = {},
-            onTogglePin = {}
-        )
     }
 }
