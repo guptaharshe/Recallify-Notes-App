@@ -10,7 +10,7 @@ plugins {
 val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
-    localProperties.load(localPropertiesFile.inputStream())
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
 
 android {
@@ -25,9 +25,6 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        
-        val apiKey = localProperties.getProperty("OPENROUTER_API_KEY") ?: ""
-        buildConfigField("String", "OPENROUTER_API_KEY", "\"$apiKey\"")
     }
 
     buildTypes {
@@ -69,12 +66,6 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
-
-    // Retrofit
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.gson)
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

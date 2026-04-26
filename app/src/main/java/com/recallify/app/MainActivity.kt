@@ -6,9 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.*
@@ -18,7 +16,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,9 +49,6 @@ class MainActivity : ComponentActivity() {
             val notes by viewModel.filteredNotes.collectAsState(initial = emptyList())
             val searchQuery by viewModel.searchQuery.collectAsState()
             val isDarkMode by viewModel.isDarkMode.collectAsState()
-            val aiResult by viewModel.aiResult.collectAsState()
-            val isLoading by viewModel.isLoading.collectAsState()
-            val aiError by viewModel.error.collectAsState()
 
             RecallifyTheme(darkTheme = isDarkMode) {
                 Surface(
@@ -64,20 +58,13 @@ class MainActivity : ComponentActivity() {
                     NoteScreen(
                         notes = notes,
                         searchQuery = searchQuery,
-                        aiResult = aiResult,
-                        isLoading = isLoading,
-                        aiError = aiError,
                         onSearchChange = { viewModel.updateSearch(it) },
                         onThemeToggle = { viewModel.toggleTheme(this) },
                         onAddNote = { title, content -> viewModel.addNote(title, content) },
                         onUpdateNote = { viewModel.updateNote(it) },
                         onDeleteNote = { viewModel.deleteNote(it) },
                         onUndoDelete = { viewModel.undoDelete() },
-                        onTogglePin = { viewModel.togglePin(it) },
-                        onSummarize = { viewModel.summarizeNote(it) },
-                        onGenerateQuiz = { viewModel.generateQuiz(it) },
-                        onGenerateEli5 = { viewModel.summarizeNote("Explain this simply like I'm 5: $it") },
-                        onClearAi = { viewModel.clearAiResult() }
+                        onTogglePin = { viewModel.togglePin(it) }
                     )
                 }
             }
@@ -90,20 +77,13 @@ class MainActivity : ComponentActivity() {
 fun NoteScreen(
     notes: List<NoteEntity>,
     searchQuery: String,
-    aiResult: String?,
-    isLoading: Boolean,
-    aiError: String?,
     onSearchChange: (String) -> Unit,
     onThemeToggle: () -> Unit,
     onAddNote: (String, String) -> Unit,
     onUpdateNote: (NoteEntity) -> Unit,
     onDeleteNote: (NoteEntity) -> Unit,
     onUndoDelete: () -> Unit,
-    onTogglePin: (NoteEntity) -> Unit,
-    onSummarize: (String) -> Unit,
-    onGenerateQuiz: (String) -> Unit,
-    onGenerateEli5: (String) -> Unit,
-    onClearAi: () -> Unit
+    onTogglePin: (NoteEntity) -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var noteToEdit by remember { mutableStateOf<NoteEntity?>(null) }
@@ -173,14 +153,6 @@ fun NoteScreen(
                 )
             )
 
-            if (isLoading) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            }
-
             val pinnedNotes = notes.filter { it.isPinned }
             val otherNotes = notes.filter { !it.isPinned }
 
@@ -205,10 +177,7 @@ fun NoteScreen(
                                     if (result == SnackbarResult.ActionPerformed) onUndoDelete()
                                 }
                             },
-                            onTogglePin = onTogglePin,
-                            onSummarize = onSummarize,
-                            onGenerateQuiz = onGenerateQuiz,
-                            onGenerateEli5 = onGenerateEli5
+                            onTogglePin = onTogglePin
                         )
                     }
                 }
@@ -230,15 +199,12 @@ fun NoteScreen(
                                     if (result == SnackbarResult.ActionPerformed) onUndoDelete()
                                 }
                             },
-                            onTogglePin = onTogglePin,
-                            onSummarize = onSummarize,
-                            onGenerateQuiz = onGenerateQuiz,
-                            onGenerateEli5 = onGenerateEli5
+                            onTogglePin = onTogglePin
                         )
                     }
                 }
                 
-                if (notes.isEmpty() && !isLoading) {
+                if (notes.isEmpty()) {
                     item {
                         EmptyState()
                     }
@@ -265,10 +231,6 @@ fun NoteScreen(
                 },
                 onDismiss = { noteToEdit = null }
             )
-        }
-
-        if (aiResult != null || aiError != null) {
-            AiResultDialog(result = aiResult, error = aiError, onDismiss = onClearAi)
         }
     }
 }
@@ -313,10 +275,7 @@ fun NoteItemComponent(
     note: NoteEntity,
     onEdit: () -> Unit,
     onDelete: (NoteEntity) -> Unit,
-    onTogglePin: (NoteEntity) -> Unit,
-    onSummarize: (String) -> Unit,
-    onGenerateQuiz: (String) -> Unit,
-    onGenerateEli5: (String) -> Unit
+    onTogglePin: (NoteEntity) -> Unit
 ) {
     val date = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(note.timestamp))
 
@@ -374,41 +333,6 @@ fun NoteItemComponent(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                AssistChip(
-                    onClick = { onSummarize(note.content) },
-                    label = { Text("Summary", fontSize = 11.sp) },
-                    leadingIcon = { Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(12.dp)) },
-                    shape = RoundedCornerShape(12.dp),
-                    border = null,
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                AssistChip(
-                    onClick = { onGenerateQuiz(note.content) },
-                    label = { Text("Quiz", fontSize = 11.sp) },
-                    leadingIcon = { Icon(Icons.Default.Quiz, null, modifier = Modifier.size(12.dp)) },
-                    shape = RoundedCornerShape(12.dp),
-                    border = null,
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                AssistChip(
-                    onClick = { onGenerateEli5(note.content) },
-                    label = { Text("ELI5", fontSize = 11.sp) },
-                    leadingIcon = { Icon(Icons.Default.ChildCare, null, modifier = Modifier.size(12.dp)) },
-                    shape = RoundedCornerShape(12.dp),
-                    border = null,
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        labelColor = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
-                )
                 Spacer(modifier = Modifier.weight(1f))
                 IconButton(onClick = { onDelete(note) }, modifier = Modifier.size(36.dp)) {
                     Icon(
@@ -464,45 +388,6 @@ fun EditNoteDialog(note: NoteEntity, onUpdate: (String, String) -> Unit, onDismi
     )
 }
 
-@Composable
-fun AiResultDialog(result: String?, error: String?, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-        title = {
-            Text(
-                if (error != null) "Analysis Failed" else "AI Insights",
-                style = MaterialTheme.typography.titleLarge,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        text = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 400.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Text(
-                    text = error ?: result ?: "",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                    lineHeight = 24.sp
-                )
-            }
-        },
-        confirmButton = {
-            FilledTonalButton(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            ) { Text("Got it") }
-        },
-        shape = RoundedCornerShape(28.dp)
-    )
-}
-
 @Preview(showBackground = true)
 @Composable
 fun NoteScreenPreview() {
@@ -513,20 +398,13 @@ fun NoteScreenPreview() {
                 NoteEntity(id = 2, title = "Gemini AI", content = "Integrating LLMs into mobile apps for smarter features like summarization and interactive quizzes.", timestamp = System.currentTimeMillis() - 86400000)
             ),
             searchQuery = "",
-            aiResult = null,
-            isLoading = false,
-            aiError = null,
             onSearchChange = {},
             onThemeToggle = {},
             onAddNote = { _, _ -> },
             onUpdateNote = {},
             onDeleteNote = {},
             onUndoDelete = {},
-            onTogglePin = {},
-            onSummarize = {},
-            onGenerateQuiz = {},
-            onGenerateEli5 = {},
-            onClearAi = {}
+            onTogglePin = {}
         )
     }
 }
