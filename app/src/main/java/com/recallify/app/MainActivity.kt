@@ -1,22 +1,34 @@
 package com.recallify.app
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
@@ -29,12 +41,26 @@ import com.recallify.app.data.local.database.DatabaseProvider
 import com.recallify.app.data.local.entity.NoteEntity
 import com.recallify.app.data.repository.NoteRepository
 import com.recallify.app.ui.theme.RecallifyTheme
+import com.recallify.app.utils.ReminderManager
 import com.recallify.app.viewmodel.NoteViewModel
 import com.recallify.app.viewmodel.NoteViewModelFactory
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+
+val NoteColors = listOf(
+    Color(0xFFFFFFFF), // White
+    Color(0xFFBBDEFB), // Blue
+    Color(0xFFC8E6C9), // Green
+    Color(0xFFFFF9C4), // Yellow
+    Color(0xFFE1BEE7), // Purple
+)
+
+// Standard dark text for light backgrounds
+val DarkTextColor = Color(0xFF202124)
+val DarkSecondaryColor = Color(0xFF5F6368)
 
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: NoteViewModel
@@ -44,7 +70,8 @@ class MainActivity : ComponentActivity() {
         val database = DatabaseProvider.getDatabase(this)
         val dao = database.noteDao()
         val repository = NoteRepository(dao)
-        val factory = NoteViewModelFactory(repository)
+        val reminderManager = ReminderManager(this)
+        val factory = NoteViewModelFactory(repository, reminderManager)
 
         viewModel = ViewModelProvider(this, factory)[NoteViewModel::class.java]
         viewModel.loadTheme(this)
@@ -243,9 +270,14 @@ fun EditNoteScreen(
     var note by remember { mutableStateOf<NoteEntity?>(null) }
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
+    var reminderTime by remember { mutableStateOf<Long?>(null) }
+    var selectedColor by remember { mutableIntStateOf(NoteColors[0].toArgb()) }
+    
     var isBold by remember { mutableStateOf(false) }
     var isItalic by remember { mutableStateOf(false) }
-    var fontSize by remember { mutableStateOf(18f) }
+    var fontSize by remember { mutableFloatStateOf(18f) }
+
+    val context = LocalContext.current
 
     LaunchedEffect(noteId) {
         if (noteId != -1) {
@@ -254,8 +286,39 @@ fun EditNoteScreen(
                 note = it
                 title = it.title
                 content = it.content
+                reminderTime = it.reminderTime
+                selectedColor = it.color
             }
         }
+    }
+
+    fun showDateTimePicker() {
+        val currentCalendar = Calendar.getInstance()
+        DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                TimePickerDialog(
+                    context,
+                    { _, hourOfDay, minute ->
+                        val selectedCalendar = Calendar.getInstance().apply {
+                            set(Calendar.YEAR, year)
+                            set(Calendar.MONTH, month)
+                            set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                            set(Calendar.HOUR_OF_DAY, hourOfDay)
+                            set(Calendar.MINUTE, minute)
+                            set(Calendar.SECOND, 0)
+                        }
+                        reminderTime = selectedCalendar.timeInMillis
+                    },
+                    currentCalendar.get(Calendar.HOUR_OF_DAY),
+                    currentCalendar.get(Calendar.MINUTE),
+                    true
+                ).show()
+            },
+            currentCalendar.get(Calendar.YEAR),
+            currentCalendar.get(Calendar.MONTH),
+            currentCalendar.get(Calendar.DAY_OF_MONTH)
+        ).show()
     }
 
     Scaffold(
@@ -264,25 +327,33 @@ fun EditNoteScreen(
                 title = { Text(if (noteId == -1) "New Note" else "Edit Note") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack, 
+                            contentDescription = "Back",
+                            tint = DarkTextColor
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = {
                         if (noteId == -1) {
                             if (title.isNotBlank() || content.isNotBlank()) {
-                                viewModel.addNote(title, content)
+                                viewModel.addNote(title, content, reminderTime, selectedColor)
                             }
                         } else {
                             note?.let {
-                                viewModel.updateNote(it.copy(title = title, content = content))
+                                viewModel.updateNote(it.copy(title = title, content = content, reminderTime = reminderTime, color = selectedColor))
                             }
                         }
                         onBack()
                     }) {
                         Icon(Icons.Default.Check, contentDescription = "Save", tint = MaterialTheme.colorScheme.primary)
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(selectedColor),
+                    titleContentColor = DarkTextColor
+                )
             )
         }
     ) { padding ->
@@ -290,69 +361,128 @@ fun EditNoteScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .background(Color(selectedColor))
                 .padding(16.dp)
         ) {
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                placeholder = { Text("Title", style = MaterialTheme.typography.headlineSmall) },
+                placeholder = { Text("Title", style = MaterialTheme.typography.headlineSmall, color = DarkSecondaryColor.copy(alpha = 0.6f)) },
                 modifier = Modifier.fillMaxWidth(),
-                textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold, color = DarkTextColor),
                 colors = OutlinedTextFieldDefaults.colors(
                     unfocusedBorderColor = Color.Transparent,
-                    focusedBorderColor = Color.Transparent
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedContainerColor = Color.Transparent,
+                    cursorColor = DarkTextColor
                 )
             )
             
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = { isBold = !isBold },
                     colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = if (isBold) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                        containerColor = if (isBold) Color.Black.copy(alpha = 0.1f) else Color.Transparent
                     )
                 ) {
-                    Icon(Icons.Default.FormatBold, "Bold")
+                    Icon(Icons.Default.FormatBold, "Bold", tint = DarkTextColor)
                 }
                 
                 IconButton(
                     onClick = { isItalic = !isItalic },
                     colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = if (isItalic) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                        containerColor = if (isItalic) Color.Black.copy(alpha = 0.1f) else Color.Transparent
                     )
                 ) {
-                    Icon(Icons.Default.FormatItalic, "Italic")
+                    Icon(Icons.Default.FormatItalic, "Italic", tint = DarkTextColor)
                 }
 
-                VerticalDivider(modifier = Modifier.height(24.dp))
+                VerticalDivider(modifier = Modifier.height(24.dp), color = DarkTextColor.copy(alpha = 0.2f))
 
                 IconButton(onClick = { if (fontSize < 40f) fontSize += 2f }) {
-                    Icon(Icons.Default.Add, "Increase Size")
+                    Icon(Icons.Default.Add, "Increase Size", tint = DarkTextColor)
                 }
                 
-                Text("${fontSize.toInt()}", style = MaterialTheme.typography.bodyMedium)
+                Text("${fontSize.toInt()}", style = MaterialTheme.typography.bodyMedium, color = DarkTextColor)
 
                 IconButton(onClick = { if (fontSize > 12f) fontSize -= 2f }) {
-                    Icon(Icons.Default.Remove, "Decrease Size")
+                    Icon(Icons.Default.Remove, "Decrease Size", tint = DarkTextColor)
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                IconButton(
+                    onClick = { showDateTimePicker() },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = if (reminderTime != null) Color.Black.copy(alpha = 0.1f) else Color.Transparent
+                    )
+                ) {
+                    Icon(
+                        imageVector = if (reminderTime != null) Icons.Default.AlarmOn else Icons.Default.AddAlarm,
+                        contentDescription = "Set Reminder",
+                        tint = DarkTextColor
+                    )
+                }
+            }
+
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp)
+            ) {
+                items(NoteColors) { color ->
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .border(
+                                width = if (selectedColor == color.toArgb()) 3.dp else 1.5.dp,
+                                color = if (selectedColor == color.toArgb()) Color.Black.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.1f),
+                                shape = CircleShape
+                            )
+                            .clickable { selectedColor = color.toArgb() }
+                    )
+                }
+            }
+
+            if (reminderTime != null) {
+                val reminderDate = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(reminderTime!!))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Reminder: $reminderDate",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = DarkSecondaryColor,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
+                    )
+                    IconButton(onClick = { reminderTime = null }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, "Remove Reminder", modifier = Modifier.size(16.dp), tint = DarkSecondaryColor)
+                    }
                 }
             }
 
             OutlinedTextField(
                 value = content,
                 onValueChange = { content = it },
-                placeholder = { Text("Start typing...") },
+                placeholder = { Text("Start typing...", color = DarkSecondaryColor.copy(alpha = 0.5f)) },
                 modifier = Modifier.fillMaxSize().weight(1f),
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
                     fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
                     fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
-                    fontSize = fontSize.sp
+                    fontSize = fontSize.sp,
+                    color = DarkTextColor
                 ),
                 colors = OutlinedTextFieldDefaults.colors(
                     unfocusedBorderColor = Color.Transparent,
-                    focusedBorderColor = Color.Transparent
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedContainerColor = Color.Transparent,
+                    cursorColor = DarkTextColor
                 )
             )
         }
@@ -408,9 +538,9 @@ fun NoteItemComponent(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            containerColor = Color(note.color)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(
@@ -423,13 +553,24 @@ fun NoteItemComponent(
                         text = note.title.ifBlank { "Untitled Note" },
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = DarkTextColor
                     )
-                    Text(
-                        text = date,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = date,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = DarkSecondaryColor
+                        )
+                        if (note.reminderTime != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                Icons.Default.Alarm,
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp),
+                                tint = DarkSecondaryColor
+                            )
+                        }
+                    }
                 }
                 Row {
                     IconButton(
@@ -438,7 +579,7 @@ fun NoteItemComponent(
                         Icon(
                             imageVector = Icons.Default.PushPin,
                             contentDescription = "Pin",
-                            tint = if (note.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                            tint = if (note.isPinned) MaterialTheme.colorScheme.primary else DarkTextColor.copy(alpha = 0.2f),
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -446,12 +587,33 @@ fun NoteItemComponent(
                         Icon(
                             Icons.Default.DeleteOutline,
                             contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.error,
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                             modifier = Modifier.size(20.dp)
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun NoteListPreview() {
+    RecallifyTheme {
+        NoteListScreen(
+            notes = listOf(
+                NoteEntity(id = 1, title = "Welcome", content = "This is a sample note", isPinned = true, color = NoteColors[1].toArgb()),
+                NoteEntity(id = 2, title = "Task", content = "Buy milk", reminderTime = System.currentTimeMillis() + 3600000, color = NoteColors[3].toArgb())
+            ),
+            searchQuery = "",
+            onSearchChange = {},
+            onThemeToggle = {},
+            onAddClick = {},
+            onNoteClick = {},
+            onDeleteNote = {},
+            onUndoDelete = {},
+            onTogglePin = {}
+        )
     }
 }

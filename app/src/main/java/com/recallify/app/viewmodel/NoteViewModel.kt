@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.recallify.app.data.local.datastore.ThemeDataStore
 import com.recallify.app.data.local.entity.NoteEntity
 import com.recallify.app.data.repository.NoteRepository
+import com.recallify.app.utils.ReminderManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -13,7 +14,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class NoteViewModel(
-    private val repository: NoteRepository
+    private val repository: NoteRepository,
+    private val reminderManager: ReminderManager
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -45,25 +47,36 @@ class NoteViewModel(
         return repository.getAllNotes().first().find { it.id == id }
     }
 
-    fun addNote(title: String, content: String) {
+    fun addNote(title: String, content: String, reminderTime: Long? = null, color: Int = 0xFFFFFFFF.toInt()) {
         viewModelScope.launch {
             val note = NoteEntity(
                 title = title,
-                content = content
+                content = content,
+                reminderTime = reminderTime,
+                color = color
             )
-            repository.insertNote(note)
+            val id = repository.insertNote(note).toInt()
+            if (reminderTime != null) {
+                reminderManager.scheduleReminder(note.copy(id = id))
+            }
         }
     }
 
     fun updateNote(note: NoteEntity) {
         viewModelScope.launch {
             repository.updateNote(note)
+            if (note.reminderTime != null) {
+                reminderManager.scheduleReminder(note)
+            } else {
+                reminderManager.cancelReminder(note.id)
+            }
         }
     }
 
     fun deleteNote(note: NoteEntity) {
         viewModelScope.launch {
             recentlyDeletedNote = note
+            reminderManager.cancelReminder(note.id)
             repository.deleteNote(note)
         }
     }
@@ -71,7 +84,10 @@ class NoteViewModel(
     fun undoDelete() {
         recentlyDeletedNote?.let {
             viewModelScope.launch {
-                repository.insertNote(it)
+                val id = repository.insertNote(it).toInt()
+                if (it.reminderTime != null) {
+                    reminderManager.scheduleReminder(it.copy(id = id))
+                }
                 recentlyDeletedNote = null
             }
         }
